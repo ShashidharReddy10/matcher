@@ -177,6 +177,28 @@ fun GameScreen(
             }
         )
     }
+
+    if (state.showNotEnoughCoinsDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissNotEnoughCoinsDialog() },
+            title = { Text("Not Enough Coins") },
+            text = { Text("You don't have enough coins. Watch an ad to get 100 coins?") },
+            confirmButton = {
+                Button(onClick = {
+                    adManager.showRewarded(activity) {
+                        viewModel.earnCoinsFromAd(100)
+                    }
+                }) {
+                    Text("Watch Ad")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissNotEnoughCoinsDialog() }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable

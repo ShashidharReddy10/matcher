@@ -70,18 +70,22 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         }
         
         val numPairs = (gridSize * gridSize) / 2
-        val themeContent = getThemeContent(_uiState.value.selectedTheme, numPairs)
         
+        val contentMapping = getContentList(_uiState.value.selectedTheme, numPairs)
         val types = (0 until numPairs).flatMap { listOf(it, it) }.shuffled()
-        val board = types.map { typeIndex -> 
-            Tile(type = typeIndex, content = themeContent[typeIndex]) 
+
+        val board = types.map { type ->
+            Tile(
+                type = type,
+                content = contentMapping[type]
+            )
         }
 
         _uiState.update { 
             it.copy(
                 board = board,
                 gridSize = gridSize,
-                timeLeft = 60 + (level * 5),
+                timeLeft = (60 + (level * 5)).coerceAtMost(480),
                 score = 0,
                 combo = 0,
                 isGameOver = false,
@@ -106,7 +110,6 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         firstSelectedTile = null
         
         viewModelScope.launch {
-            // Store the board safely at the start of the peek
             val boardBeforePeek = _uiState.value.board
             if (boardBeforePeek.isEmpty()) {
                 isPeeking = false
@@ -118,7 +121,6 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             
             delay(duration)
             
-            // Re-fetch current state to ensure we don't overwrite matches that happened during delay (though unlikely with isPeeking check)
             val boardAfterPeek = _uiState.value.board
             val hiddenBoard = boardAfterPeek.map { 
                 if (it.isMatched) it else it.copy(isSelected = false)
@@ -143,6 +145,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         viewModelScope.launch {
             if (gamePrefs.useCoins(20)) {
                 peekAll(2000)
+            } else {
+                requestMoreCoins()
             }
         }
     }
@@ -157,6 +161,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         viewModelScope.launch {
             if (gamePrefs.useCoins(30)) {
                 shuffleBoard()
+            } else {
+                requestMoreCoins()
             }
         }
     }
@@ -165,23 +171,39 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         viewModelScope.launch {
             if (gamePrefs.useCoins(50)) {
                 addExtraTime(30)
+            } else {
+                requestMoreCoins()
             }
         }
     }
 
-    private fun getThemeContent(theme: GameTheme, count: Int): List<String> {
+    private fun requestMoreCoins() {
+        timerJob?.cancel()
+        _uiState.update { it.copy(showNotEnoughCoinsDialog = true) }
+    }
+
+    fun dismissNotEnoughCoinsDialog() {
+        _uiState.update { it.copy(showNotEnoughCoinsDialog = false) }
+        startTimer()
+    }
+
+    fun earnCoinsFromAd(amount: Int) {
+        viewModelScope.launch {
+            gamePrefs.addCoins(amount)
+            _uiState.update { it.copy(showNotEnoughCoinsDialog = false) }
+            startTimer()
+        }
+    }
+
+    private fun getContentList(theme: GameTheme, count: Int): List<String> {
         val baseList = when (theme) {
             GameTheme.ALPHABET -> ('A'..'Z').map { it.toString() }
             GameTheme.NUMBERS -> (1..100).map { it.toString() }
             GameTheme.SPECIAL_CHARACTERS -> "!@#$%^&*()_+-=[]{}|;:,.<>?".map { it.toString() }
             GameTheme.COMBINATION -> (('A'..'Z') + ('0'..'9') + "!@#$%^&*()_+-=[]{}|;:,.<>?".toList()).map { it.toString() }
-        }.shuffled()
-
-        val result = mutableListOf<String>()
-        while (result.size < count) {
-            result.addAll(baseList)
         }
-        return result.take(count).shuffled()
+
+        return (0 until count).map { index -> baseList[index % baseList.size] }
     }
 
     private fun startTimer() {
@@ -198,7 +220,6 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun onTileClicked(tile: Tile) {
-        // Critical: Do not allow clicks during peeking or if game state is invalid
         if (isPeeking || tile.isMatched || tile.isSelected || _uiState.value.isGameOver) return
         
         if (firstSelectedTile?.id == tile.id) return
@@ -213,9 +234,9 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             _uiState.update { it.copy(board = currentBoard) }
         } else {
             val firstTile = firstSelectedTile!!
-            firstSelectedTile = null // Reset early to prevent race conditions
+            firstSelectedTile = null
             
-            if (firstTile.type == tile.type) {
+            if (firstTile.content == tile.content) { // Match based on content instead of type
                 val firstIndex = currentBoard.indexOfFirst { it.id == firstTile.id }
                 if (firstIndex != -1) {
                     currentBoard[firstIndex] = firstTile.copy(isMatched = true, isSelected = false)
@@ -240,7 +261,6 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                     
                     delay(500)
                     
-                    // Re-fetch the board to avoid overwriting changes from other coroutines
                     val boardToReset = _uiState.value.board.toMutableList()
                     val idx1 = boardToReset.indexOfFirst { it.id == firstTile.id }
                     val idx2 = boardToReset.indexOfFirst { it.id == tile.id }
@@ -266,7 +286,34 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun addExtraTime(seconds: Int) {
-        _uiState.update { it.copy(timeLeft = it.timeLeft + seconds, isGameOver = false) }
+        val newTime = (_uiState.value.timeLeft + seconds).coerceAtMost(480)
+        _uiState.update { it.copy(timeLeft = newTime, isGameOver = false) }
         startTimer()
+    }
+
+    fun useOldHint() {
+        val unmatched = _uiState.value.board.filter { !it.isMatched }
+        if (unmatched.size < 2) return
+        
+        val first = unmatched.first()
+        val second = unmatched.find { it.content == first.content && it.id != first.id }
+        
+        if (second != null) {
+            viewModelScope.launch {
+                val board = _uiState.value.board.toMutableList()
+                val idx1 = board.indexOfFirst { it.id == first.id }
+                val idx2 = board.indexOfFirst { it.id == second.id }
+                if (idx1 != -1 && idx2 != -1) {
+                    board[idx1] = first.copy(isSelected = true)
+                    board[idx2] = second.copy(isSelected = true)
+                    _uiState.update { it.copy(board = board) }
+                    delay(1000)
+                    val resetBoard = _uiState.value.board.toMutableList()
+                    if (idx1 < resetBoard.size) resetBoard[idx1] = resetBoard[idx1].copy(isSelected = false)
+                    if (idx2 < resetBoard.size) resetBoard[idx2] = resetBoard[idx2].copy(isSelected = false)
+                    _uiState.update { it.copy(board = resetBoard) }
+                }
+            }
+        }
     }
 }

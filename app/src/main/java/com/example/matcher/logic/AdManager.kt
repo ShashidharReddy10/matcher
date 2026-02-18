@@ -2,6 +2,7 @@ package com.example.matcher.logic
 
 import android.app.Activity
 import android.content.Context
+import android.widget.Toast
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.FullScreenContentCallback
 import com.google.android.gms.ads.LoadAdError
@@ -75,6 +76,7 @@ class AdManager(private val context: Context) {
             }
         } else {
             // Provide fallback if ad not ready (optional, but good for UX)
+            Toast.makeText(activity, "Ad is still loading, please try again in a moment", Toast.LENGTH_SHORT).show()
             // For now, just load it for next time
             loadRewarded()
         }

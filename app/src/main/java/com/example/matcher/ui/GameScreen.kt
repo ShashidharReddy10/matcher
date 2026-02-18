@@ -33,14 +33,16 @@ fun GameScreen(
     activity: Activity
 ) {
     val state by viewModel.uiState.collectAsState()
-    val coins by gamePrefs.coins.collectAsState(initial = 100)
     val isAdsRemoved by gamePrefs.isAdsRemoved.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
 
     if (state.isThemeSelectionOpen) {
-        ThemeSelectionScreen(onThemeSelected = { theme, isAlwaysVisible -> 
-            viewModel.selectTheme(theme, isAlwaysVisible) 
-        })
+        ThemeSelectionScreen(
+            onThemeSelected = { theme, isAlwaysVisible -> 
+                viewModel.selectTheme(theme, isAlwaysVisible) 
+            },
+            coins = state.coins
+        )
     } else {
         Column(
             modifier = Modifier
@@ -58,13 +60,17 @@ fun GameScreen(
                     Text("Level: ${state.currentLevel}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text("Score: ${state.score}", fontSize = 16.sp)
                 }
-                Text("Time: ${state.timeLeft}s", 
+                Text("${state.timeLeft}s", 
                     fontSize = 24.sp, 
                     fontWeight = FontWeight.ExtraBold,
                     color = if (state.timeLeft < 10) Color.Red else MaterialTheme.colorScheme.onBackground
                 )
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("Coins: $coins", fontSize = 16.sp, color = Color(0xFFFFD700))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("💰", fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("${state.coins}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
+                    }
                     TextButton(onClick = { viewModel.openThemeSelection() }) {
                         Text("Change Theme", fontSize = 10.sp)
                     }
@@ -98,20 +104,32 @@ fun GameScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                val hintSubLabel = if (state.hintsLeft > 0) "${state.hintsLeft} Left" else "Ad"
-                GameActionButton("Hint", hintSubLabel) {
-                    if (state.hintsLeft > 0) {
-                        viewModel.useHint()
-                    } else {
-                        adManager.showRewarded(activity) { viewModel.useRewardedHint() }
-                    }
-                }
-                GameActionButton("Shuffle", "Ad") {
-                    adManager.showRewarded(activity) { viewModel.shuffleBoard() }
-                }
-                GameActionButton("Extra Time", "Ad") {
-                    adManager.showRewarded(activity) { viewModel.addExtraTime(30) }
-                }
+                // Hint Button
+                PowerUpButton(
+                    label = "Hint",
+                    subLabel = if (state.hintsLeft > 0) "${state.hintsLeft} Free" else "20 💰",
+                    onPowerUp = {
+                        if (state.hintsLeft > 0) viewModel.useHint() 
+                        else viewModel.buyHintWithCoins()
+                    },
+                    onAd = { adManager.showRewarded(activity) { viewModel.useRewardedHint() } }
+                )
+
+                // Shuffle Button
+                PowerUpButton(
+                    label = "Shuffle",
+                    subLabel = "30 💰",
+                    onPowerUp = { viewModel.buyShuffleWithCoins() },
+                    onAd = { adManager.showRewarded(activity) { viewModel.shuffleBoard() } }
+                )
+
+                // Extra Time Button
+                PowerUpButton(
+                    label = "Time",
+                    subLabel = "50 💰",
+                    onPowerUp = { viewModel.buyExtraTimeWithCoins() },
+                    onAd = { adManager.showRewarded(activity) { viewModel.addExtraTime(30) } }
+                )
             }
         }
     }
@@ -121,11 +139,16 @@ fun GameScreen(
         AlertDialog(
             onDismissRequest = { },
             title = { Text("Game Over") },
-            text = { Text("Ran out of time! Continue for 30s with an ad?") },
+            text = { Text("Ran out of time! Continue for 30s with an ad or 50 coins?") },
             confirmButton = {
-                Button(onClick = {
-                    adManager.showRewarded(activity) { viewModel.addExtraTime(30) }
-                }) { Text("Continue (Ad)") }
+                Row {
+                    TextButton(onClick = {
+                        adManager.showRewarded(activity) { viewModel.addExtraTime(30) }
+                    }) { Text("Ad") }
+                    Button(onClick = { viewModel.buyExtraTimeWithCoins() }) {
+                        Text("50 💰")
+                    }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.startNewLevel(state.currentLevel) }) {
@@ -149,7 +172,7 @@ fun GameScreen(
             confirmButton = {
                 Button(onClick = {
                     scope.launch { 
-                        gamePrefs.nextLevel(state.selectedTheme)
+                        gamePrefs.nextLevel(state.selectedTheme, state.isAlwaysVisible)
                         viewModel.startNewLevel(state.currentLevel + 1)
                     }
                 }) { Text("Next Level") }
@@ -159,38 +182,81 @@ fun GameScreen(
 }
 
 @Composable
-fun ThemeSelectionScreen(onThemeSelected: (GameTheme, Boolean) -> Unit) {
+fun PowerUpButton(
+    label: String,
+    subLabel: String,
+    onPowerUp: () -> Unit,
+    onAd: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Button(
+            onClick = onPowerUp,
+            modifier = Modifier.padding(4.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(label, fontSize = 12.sp)
+                Text(subLabel, fontSize = 10.sp, color = Color.White.copy(alpha = 0.8f))
+            }
+        }
+        TextButton(onClick = onAd, contentPadding = PaddingValues(0.dp)) {
+            Text("or Ad 📺", fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+fun ThemeSelectionScreen(onThemeSelected: (GameTheme, Boolean) -> Unit, coins: Int) {
     var isAlwaysVisible by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text("Select Game Theme", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        
-        Spacer(modifier = Modifier.height(16.dp))
-
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Coin display at the top right of the home screen
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(24.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Always show characters", fontSize = 16.sp)
-            Spacer(modifier = Modifier.width(12.dp))
-            Switch(
-                checked = isAlwaysVisible,
-                onCheckedChange = { isAlwaysVisible = it }
+            Text("💰", fontSize = 20.sp)
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                "$coins",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFD700)
             )
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        ThemeButton("Alphabet (A-Z)") { onThemeSelected(GameTheme.ALPHABET, isAlwaysVisible) }
-        ThemeButton("Numbers (1-100)") { onThemeSelected(GameTheme.NUMBERS, isAlwaysVisible) }
-        ThemeButton("Special Characters (!@#$)") { onThemeSelected(GameTheme.SPECIAL_CHARACTERS, isAlwaysVisible) }
-        ThemeButton("Mixed Combination") { onThemeSelected(GameTheme.COMBINATION, isAlwaysVisible) }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("Select Game Theme", fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                Text("Always show characters", fontSize = 16.sp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Switch(
+                    checked = isAlwaysVisible,
+                    onCheckedChange = { isAlwaysVisible = it }
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            ThemeButton("Alphabet (A-Z)") { onThemeSelected(GameTheme.ALPHABET, isAlwaysVisible) }
+            ThemeButton("Numbers (1-100)") { onThemeSelected(GameTheme.NUMBERS, isAlwaysVisible) }
+            ThemeButton("Special Characters (!@#$)") { onThemeSelected(GameTheme.SPECIAL_CHARACTERS, isAlwaysVisible) }
+            ThemeButton("Mixed Combination") { onThemeSelected(GameTheme.COMBINATION, isAlwaysVisible) }
+        }
     }
 }
 
@@ -230,20 +296,6 @@ fun TileView(tile: Tile, isAlwaysVisible: Boolean, onClick: () -> Unit) {
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
             )
-        }
-    }
-}
-
-@Composable
-fun GameActionButton(label: String, subLabel: String, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.padding(4.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 12.sp)
-            Text(subLabel, fontSize = 10.sp, color = Color.LightGray)
         }
     }
 }

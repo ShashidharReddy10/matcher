@@ -23,9 +23,17 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     private var firstSelectedTile: Tile? = null
     private var isPeeking = false
 
+    init {
+        viewModelScope.launch {
+            gamePrefs.coins.collect { currentCoins ->
+                _uiState.update { it.copy(coins = currentCoins) }
+            }
+        }
+    }
+
     fun selectTheme(theme: GameTheme, isAlwaysVisible: Boolean) {
         viewModelScope.launch {
-            val savedLevel = gamePrefs.getLevelForTheme(theme).first()
+            val savedLevel = gamePrefs.getLevelForTheme(theme, isAlwaysVisible).first()
             _uiState.update { 
                 it.copy(
                     selectedTheme = theme, 
@@ -71,6 +79,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                 hintsLeft = 3
             )
         }
+        
+        firstSelectedTile = null
 
         if (!_uiState.value.isAlwaysVisible) {
             peekAll(2000)
@@ -82,6 +92,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     private fun peekAll(duration: Long) {
         if (isPeeking) return
         isPeeking = true
+        firstSelectedTile = null
+        
         viewModelScope.launch {
             val currentBoard = _uiState.value.board
             val revealedBoard = currentBoard.map { it.copy(isSelected = true) }
@@ -90,7 +102,6 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             delay(duration)
             
             val hiddenBoard = _uiState.value.board.map { 
-                // Keep matched tiles as matched, hide others
                 if (it.isMatched) it else it.copy(isSelected = false)
             }
             _uiState.update { it.copy(board = hiddenBoard) }
@@ -108,21 +119,48 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         }
     }
     
+    fun buyHintWithCoins() {
+        if (_uiState.value.isAlwaysVisible || isPeeking) return
+        viewModelScope.launch {
+            if (gamePrefs.useCoins(20)) {
+                peekAll(2000)
+            }
+        }
+    }
+
     fun useRewardedHint() {
-        peekAll(3000) // Longer peek for rewarded ad
+        peekAll(3000)
+    }
+
+    fun buyShuffleWithCoins() {
+        viewModelScope.launch {
+            if (gamePrefs.useCoins(30)) {
+                shuffleBoard()
+            }
+        }
+    }
+
+    fun buyExtraTimeWithCoins() {
+        viewModelScope.launch {
+            if (gamePrefs.useCoins(50)) {
+                addExtraTime(30)
+            }
+        }
     }
 
     private fun getThemeContent(theme: GameTheme, count: Int): List<String> {
-        val alphabet = ('A'..'Z').map { it.toString() }
-        val numbers = (1..100).map { it.toString() }
-        val special = "!@#$%^&*()_+-=[]{}|;:,.<>?".map { it.toString() }
-        
-        return when (theme) {
-            GameTheme.ALPHABET -> alphabet.shuffled().take(count)
-            GameTheme.NUMBERS -> numbers.shuffled().take(count)
-            GameTheme.SPECIAL_CHARACTERS -> special.shuffled().take(count)
-            GameTheme.COMBINATION -> (alphabet + numbers + special).shuffled().take(count)
+        val baseList = when (theme) {
+            GameTheme.ALPHABET -> ('A'..'Z').map { it.toString() }
+            GameTheme.NUMBERS -> (1..100).map { it.toString() }
+            GameTheme.SPECIAL_CHARACTERS -> "!@#$%^&*()_+-=[]{}|;:,.<>?".map { it.toString() }
+            GameTheme.COMBINATION -> (('A'..'Z') + ('0'..'9') + "!@#$%^&*()_+-=[]{}|;:,.<>?".toList()).map { it.toString() }
+        }.shuffled()
+
+        val result = mutableListOf<String>()
+        while (result.size < count) {
+            result.addAll(baseList)
         }
+        return result.take(count).shuffled()
     }
 
     private fun startTimer() {
@@ -140,9 +178,12 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
 
     fun onTileClicked(tile: Tile) {
         if (tile.isMatched || tile.isSelected || _uiState.value.isGameOver || isPeeking) return
+        
+        if (firstSelectedTile?.id == tile.id) return
 
         val currentBoard = _uiState.value.board.toMutableList()
         val index = currentBoard.indexOfFirst { it.id == tile.id }
+        if (index == -1) return
         
         if (firstSelectedTile == null) {
             firstSelectedTile = tile
@@ -152,19 +193,21 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             val firstTile = firstSelectedTile!!
             if (firstTile.type == tile.type) {
                 val firstIndex = currentBoard.indexOfFirst { it.id == firstTile.id }
-                currentBoard[firstIndex] = firstTile.copy(isMatched = true, isSelected = false)
-                currentBoard[index] = tile.copy(isMatched = true, isSelected = false)
-                
-                val newScore = _uiState.value.score + 10 * (_uiState.value.combo + 1)
-                val newCombo = _uiState.value.combo + 1
-                
-                _uiState.update { 
-                    it.copy(
-                        board = currentBoard, 
-                        score = newScore, 
-                        combo = newCombo,
-                        isLevelComplete = currentBoard.all { t -> t.isMatched }
-                    )
+                if (firstIndex != -1) {
+                    currentBoard[firstIndex] = firstTile.copy(isMatched = true, isSelected = false)
+                    currentBoard[index] = tile.copy(isMatched = true, isSelected = false)
+                    
+                    val newScore = _uiState.value.score + 10 * (_uiState.value.combo + 1)
+                    val newCombo = _uiState.value.combo + 1
+                    
+                    _uiState.update { 
+                        it.copy(
+                            board = currentBoard, 
+                            score = newScore, 
+                            combo = newCombo,
+                            isLevelComplete = currentBoard.all { t -> t.isMatched }
+                        )
+                    }
                 }
             } else {
                 viewModelScope.launch {
@@ -174,35 +217,12 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                     val resetBoard = _uiState.value.board.toMutableList()
                     val idx1 = resetBoard.indexOfFirst { it.id == firstTile.id }
                     val idx2 = resetBoard.indexOfFirst { it.id == tile.id }
-                    if (idx1 != -1) resetBoard[idx1] = firstTile.copy(isSelected = false)
-                    if (idx2 != -1) resetBoard[idx2] = tile.copy(isSelected = false)
+                    if (idx1 != -1) resetBoard[idx1] = resetBoard[idx1].copy(isSelected = false)
+                    if (idx2 != -1) resetBoard[idx2] = resetBoard[idx2].copy(isSelected = false)
                     _uiState.update { it.copy(board = resetBoard, combo = 0) }
                 }
             }
             firstSelectedTile = null
-        }
-    }
-
-    fun useOldHint() {
-        val unmatched = _uiState.value.board.filter { !it.isMatched }
-        if (unmatched.size < 2) return
-        
-        val first = unmatched.first()
-        val second = unmatched.find { it.type == first.type && it.id != first.id }
-        
-        if (second != null) {
-            viewModelScope.launch {
-                val board = _uiState.value.board.toMutableList()
-                val idx1 = board.indexOfFirst { it.id == first.id }
-                val idx2 = board.indexOfFirst { it.id == second.id }
-                board[idx1] = first.copy(isSelected = true)
-                board[idx2] = second.copy(isSelected = true)
-                _uiState.update { it.copy(board = board) }
-                delay(1000)
-                board[idx1] = first.copy(isSelected = false)
-                board[idx2] = second.copy(isSelected = false)
-                _uiState.update { it.copy(board = board) }
-            }
         }
     }
 

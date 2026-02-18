@@ -23,6 +23,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     private var timerJob: Job? = null
     private var firstSelectedTile: Tile? = null
     private var isPeeking = false
+    private var isProcessingMove = false
 
     init {
         viewModelScope.launch {
@@ -127,7 +128,9 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             }
             _uiState.update { it.copy(board = hiddenBoard) }
             isPeeking = false
-            startTimer()
+            if (!_uiState.value.isLevelComplete && !_uiState.value.isGameOver) {
+                startTimer()
+            }
         }
     }
 
@@ -136,6 +139,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
 
         if (_uiState.value.hintsLeft > 0) {
             _uiState.update { it.copy(hintsLeft = it.hintsLeft - 1) }
+            timerJob?.cancel()
             peekAll(1500)
         }
     }
@@ -144,6 +148,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         if (_uiState.value.isAlwaysVisible || isPeeking) return
         viewModelScope.launch {
             if (gamePrefs.useCoins(20)) {
+                timerJob?.cancel()
                 peekAll(2000)
             } else {
                 requestMoreCoins()
@@ -153,6 +158,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
 
     fun useRewardedHint() {
         if (isPeeking) return
+        timerJob?.cancel()
         peekAll(3000)
     }
 
@@ -197,17 +203,17 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
 
     private fun getContentList(theme: GameTheme, count: Int): List<String> {
         val baseList = when (theme) {
-            GameTheme.ALPHABET -> ('A'..'Z').map { it.toString() }
+            GameTheme.ALPHABET -> "ABCDEFGHIJKLMNOPQRSTUVWXYZ".map { it.toString() }
             GameTheme.NUMBERS -> (1..100).map { it.toString() }
-            GameTheme.SPECIAL_CHARACTERS -> "!@#$%^&*()_+-=[]{}|;:,.<>?".map { it.toString() }
-            GameTheme.COMBINATION -> (('A'..'Z') + ('0'..'9') + "!@#$%^&*()_+-=[]{}|;:,.<>?".toList()).map { it.toString() }
-        }
+            GameTheme.SPECIAL_CHARACTERS -> "!@#$%^&*()_+-=[]{}|;:,.<>?~`".map { it.toString() }
+            GameTheme.COMBINATION -> "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*".map { it.toString() }
+        }.shuffled()
 
         return (0 until count).map { index -> baseList[index % baseList.size] }
     }
 
     private fun startTimer() {
-        timerJob?.cancel()
+        if (timerJob?.isActive == true) return
         timerJob = viewModelScope.launch {
             while (_uiState.value.timeLeft > 0 && !_uiState.value.isLevelComplete) {
                 delay(1000)
@@ -220,7 +226,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun onTileClicked(tile: Tile) {
-        if (isPeeking || tile.isMatched || tile.isSelected || _uiState.value.isGameOver) return
+        if (isProcessingMove || isPeeking || tile.isMatched || tile.isSelected || _uiState.value.isGameOver) return
         
         if (firstSelectedTile?.id == tile.id) return
 
@@ -236,7 +242,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             val firstTile = firstSelectedTile!!
             firstSelectedTile = null
             
-            if (firstTile.content == tile.content) { // Match based on content instead of type
+            if (firstTile.content == tile.content) {
                 val firstIndex = currentBoard.indexOfFirst { it.id == firstTile.id }
                 if (firstIndex != -1) {
                     currentBoard[firstIndex] = firstTile.copy(isMatched = true, isSelected = false)
@@ -255,6 +261,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                     }
                 }
             } else {
+                isProcessingMove = true
                 viewModelScope.launch {
                     currentBoard[index] = tile.copy(isSelected = true)
                     _uiState.update { it.copy(board = currentBoard.toList()) }
@@ -269,6 +276,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                     if (idx2 != -1) boardToReset[idx2] = boardToReset[idx2].copy(isSelected = false)
                     
                     _uiState.update { it.copy(board = boardToReset, combo = 0) }
+                    isProcessingMove = false
                 }
             }
         }
@@ -286,34 +294,10 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun addExtraTime(seconds: Int) {
-        val newTime = (_uiState.value.timeLeft + seconds).coerceAtMost(480)
-        _uiState.update { it.copy(timeLeft = newTime, isGameOver = false) }
-        startTimer()
-    }
-
-    fun useOldHint() {
-        val unmatched = _uiState.value.board.filter { !it.isMatched }
-        if (unmatched.size < 2) return
-        
-        val first = unmatched.first()
-        val second = unmatched.find { it.content == first.content && it.id != first.id }
-        
-        if (second != null) {
-            viewModelScope.launch {
-                val board = _uiState.value.board.toMutableList()
-                val idx1 = board.indexOfFirst { it.id == first.id }
-                val idx2 = board.indexOfFirst { it.id == second.id }
-                if (idx1 != -1 && idx2 != -1) {
-                    board[idx1] = first.copy(isSelected = true)
-                    board[idx2] = second.copy(isSelected = true)
-                    _uiState.update { it.copy(board = board) }
-                    delay(1000)
-                    val resetBoard = _uiState.value.board.toMutableList()
-                    if (idx1 < resetBoard.size) resetBoard[idx1] = resetBoard[idx1].copy(isSelected = false)
-                    if (idx2 < resetBoard.size) resetBoard[idx2] = resetBoard[idx2].copy(isSelected = false)
-                    _uiState.update { it.copy(board = resetBoard) }
-                }
-            }
+        _uiState.update {
+            val newTime = (it.timeLeft + seconds).coerceAtMost(480)
+            it.copy(timeLeft = newTime, isGameOver = false)
         }
+        startTimer()
     }
 }

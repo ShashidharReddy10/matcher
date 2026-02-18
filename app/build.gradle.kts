@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.matcher"
+    namespace = "com.squasre.matcher"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.matcher"
+        applicationId = "com.squasre.matcher"
         minSdk = 24
         targetSdk = 35
         versionCode = 1

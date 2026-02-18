@@ -39,7 +39,8 @@ data class GameState(
     val isAlwaysVisible: Boolean = false,
     val hintsLeft: Int = 3,
     val gridColorTheme: GridColorTheme = GridColorTheme.BLUE,
-    val showNotEnoughCoinsDialog: Boolean = false
+    val showNotEnoughCoinsDialog: Boolean = false,
+    val showMaxTimeToast: Boolean = false
 )
 
 enum class GameAdAction {

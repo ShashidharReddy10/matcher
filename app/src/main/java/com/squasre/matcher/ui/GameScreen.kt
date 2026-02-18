@@ -1,6 +1,7 @@
 package com.squasre.matcher.ui
 
 import android.app.Activity
+import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,6 +47,14 @@ fun GameScreen(
     val state by viewModel.uiState.collectAsState()
     val isAdsRemoved by gamePrefs.isAdsRemoved.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    LaunchedEffect(state.showMaxTimeToast) {
+        if (state.showMaxTimeToast) {
+            Toast.makeText(context, "Maximum time reached!", Toast.LENGTH_SHORT).show()
+            viewModel.toastShown()
+        }
+    }
 
     if (state.isThemeSelectionOpen) {
         ThemeSelectionScreen(

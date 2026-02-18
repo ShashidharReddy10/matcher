@@ -174,6 +174,12 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun buyExtraTimeWithCoins() {
+        // Fix: Check if adding time would exceed the cap before reducing coins
+        if (_uiState.value.timeLeft + 30 > 480) {
+            _uiState.update { it.copy(showMaxTimeToast = true) }
+            return
+        }
+        
         viewModelScope.launch {
             if (gamePrefs.useCoins(50)) {
                 addExtraTime(30)
@@ -295,9 +301,18 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
 
     fun addExtraTime(seconds: Int) {
         _uiState.update {
-            val newTime = (it.timeLeft + seconds).coerceAtMost(480)
-            it.copy(timeLeft = newTime, isGameOver = false)
+            val potentialTime = it.timeLeft + seconds
+            val newTime = potentialTime.coerceAtMost(480)
+            it.copy(
+                timeLeft = newTime, 
+                isGameOver = false,
+                showMaxTimeToast = potentialTime > 480
+            )
         }
         startTimer()
+    }
+
+    fun toastShown() {
+        _uiState.update { it.copy(showMaxTimeToast = false) }
     }
 }

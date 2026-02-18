@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcher.data.GamePreferences
 import com.example.matcher.data.GameState
 import com.example.matcher.data.GameTheme
+import com.example.matcher.data.GridColorTheme
 import com.example.matcher.data.Tile
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -31,7 +32,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         }
     }
 
-    fun selectTheme(theme: GameTheme, isAlwaysVisible: Boolean) {
+    fun selectTheme(theme: GameTheme, isAlwaysVisible: Boolean, colorTheme: GridColorTheme) {
         viewModelScope.launch {
             val savedLevel = gamePrefs.getLevelForTheme(theme, isAlwaysVisible).first()
             _uiState.update { 
@@ -40,7 +41,11 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                     isThemeSelectionOpen = false,
                     isAlwaysVisible = isAlwaysVisible,
                     currentLevel = savedLevel,
-                    hintsLeft = 3
+                    hintsLeft = 3,
+                    gridColorTheme = colorTheme,
+                    isLevelComplete = false,
+                    isGameOver = false,
+                    board = emptyList() 
                 ) 
             }
             startNewLevel(savedLevel)
@@ -48,7 +53,13 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun openThemeSelection() {
-        _uiState.update { it.copy(isThemeSelectionOpen = true) }
+        _uiState.update { 
+            it.copy(
+                isThemeSelectionOpen = true,
+                isLevelComplete = false,
+                isGameOver = false
+            ) 
+        }
     }
 
     fun startNewLevel(level: Int) {
@@ -95,13 +106,21 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
         firstSelectedTile = null
         
         viewModelScope.launch {
-            val currentBoard = _uiState.value.board
-            val revealedBoard = currentBoard.map { it.copy(isSelected = true) }
+            // Store the board safely at the start of the peek
+            val boardBeforePeek = _uiState.value.board
+            if (boardBeforePeek.isEmpty()) {
+                isPeeking = false
+                return@launch
+            }
+
+            val revealedBoard = boardBeforePeek.map { it.copy(isSelected = true) }
             _uiState.update { it.copy(board = revealedBoard) }
             
             delay(duration)
             
-            val hiddenBoard = _uiState.value.board.map { 
+            // Re-fetch current state to ensure we don't overwrite matches that happened during delay (though unlikely with isPeeking check)
+            val boardAfterPeek = _uiState.value.board
+            val hiddenBoard = boardAfterPeek.map { 
                 if (it.isMatched) it else it.copy(isSelected = false)
             }
             _uiState.update { it.copy(board = hiddenBoard) }
@@ -129,10 +148,12 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun useRewardedHint() {
+        if (isPeeking) return
         peekAll(3000)
     }
 
     fun buyShuffleWithCoins() {
+        if (isPeeking) return
         viewModelScope.launch {
             if (gamePrefs.useCoins(30)) {
                 shuffleBoard()
@@ -177,7 +198,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun onTileClicked(tile: Tile) {
-        if (tile.isMatched || tile.isSelected || _uiState.value.isGameOver || isPeeking) return
+        // Critical: Do not allow clicks during peeking or if game state is invalid
+        if (isPeeking || tile.isMatched || tile.isSelected || _uiState.value.isGameOver) return
         
         if (firstSelectedTile?.id == tile.id) return
 
@@ -191,6 +213,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             _uiState.update { it.copy(board = currentBoard) }
         } else {
             val firstTile = firstSelectedTile!!
+            firstSelectedTile = null // Reset early to prevent race conditions
+            
             if (firstTile.type == tile.type) {
                 val firstIndex = currentBoard.indexOfFirst { it.id == firstTile.id }
                 if (firstIndex != -1) {
@@ -205,7 +229,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                             board = currentBoard, 
                             score = newScore, 
                             combo = newCombo,
-                            isLevelComplete = currentBoard.all { t -> t.isMatched }
+                            isLevelComplete = currentBoard.isNotEmpty() && currentBoard.all { t -> t.isMatched }
                         )
                     }
                 }
@@ -213,21 +237,26 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                 viewModelScope.launch {
                     currentBoard[index] = tile.copy(isSelected = true)
                     _uiState.update { it.copy(board = currentBoard.toList()) }
+                    
                     delay(500)
-                    val resetBoard = _uiState.value.board.toMutableList()
-                    val idx1 = resetBoard.indexOfFirst { it.id == firstTile.id }
-                    val idx2 = resetBoard.indexOfFirst { it.id == tile.id }
-                    if (idx1 != -1) resetBoard[idx1] = resetBoard[idx1].copy(isSelected = false)
-                    if (idx2 != -1) resetBoard[idx2] = resetBoard[idx2].copy(isSelected = false)
-                    _uiState.update { it.copy(board = resetBoard, combo = 0) }
+                    
+                    // Re-fetch the board to avoid overwriting changes from other coroutines
+                    val boardToReset = _uiState.value.board.toMutableList()
+                    val idx1 = boardToReset.indexOfFirst { it.id == firstTile.id }
+                    val idx2 = boardToReset.indexOfFirst { it.id == tile.id }
+                    
+                    if (idx1 != -1) boardToReset[idx1] = boardToReset[idx1].copy(isSelected = false)
+                    if (idx2 != -1) boardToReset[idx2] = boardToReset[idx2].copy(isSelected = false)
+                    
+                    _uiState.update { it.copy(board = boardToReset, combo = 0) }
                 }
             }
-            firstSelectedTile = null
         }
     }
 
     fun shuffleBoard() {
         val board = _uiState.value.board.toMutableList()
+        if (board.isEmpty()) return
         val unmatchedIndices = board.indices.filter { !board[it].isMatched }
         val shuffledTiles = unmatchedIndices.map { board[it] }.shuffled()
         unmatchedIndices.forEachIndexed { index, boardIdx ->

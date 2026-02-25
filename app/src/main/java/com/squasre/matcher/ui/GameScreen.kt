@@ -120,6 +120,7 @@ fun GameScreen(
                             tile = tile, 
                             isAlwaysVisible = state.isAlwaysVisible,
                             colorTheme = state.gridColorTheme,
+                            gridSize = state.gridSize,
                             onClick = { viewModel.onTileClicked(tile) }
                         )
                     }
@@ -328,7 +329,7 @@ fun ThemeSelectionScreen(onThemeSelected: (GameTheme, Boolean, GridColorTheme) -
 }
 
 @Composable
-fun TileView(tile: Tile, isAlwaysVisible: Boolean, colorTheme: GridColorTheme, onClick: () -> Unit) {
+fun TileView(tile: Tile, isAlwaysVisible: Boolean, colorTheme: GridColorTheme, gridSize: Int, onClick: () -> Unit) {
     val isRevealed = tile.isSelected || isAlwaysVisible
     
     // Animation for highlighting the selected tile
@@ -337,6 +338,19 @@ fun TileView(tile: Tile, isAlwaysVisible: Boolean, colorTheme: GridColorTheme, o
         animationSpec = tween(durationMillis = 200),
         label = "tile_scale"
     )
+
+    // Dynamically adjust font size based on grid size and content length
+    val baseFontSize = when {
+        gridSize <= 4 -> 24.sp
+        gridSize <= 6 -> 18.sp
+        else -> 14.sp
+    }
+
+    val finalFontSize = if (isRevealed && tile.content.length >= 3) {
+        (baseFontSize.value * 0.8f).sp
+    } else {
+        baseFontSize
+    }
     
     Surface(
         modifier = Modifier
@@ -360,9 +374,11 @@ fun TileView(tile: Tile, isAlwaysVisible: Boolean, colorTheme: GridColorTheme, o
             if (!tile.isMatched) {
                 Text(
                     text = if (isRevealed) tile.content else "?",
-                    fontSize = 24.sp,
+                    fontSize = finalFontSize,
                     fontWeight = FontWeight.Bold,
-                    color = if (isRevealed) Color.White else colorTheme.mainColor
+                    color = if (isRevealed) Color.White else colorTheme.mainColor,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }

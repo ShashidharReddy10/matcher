@@ -16,6 +16,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.squasre.matcher.logic.AdManager
 import com.squasre.matcher.logic.BillingManager
+import com.squasre.matcher.logic.CrashLogger
 import com.squasre.matcher.logic.GameViewModel
 import com.squasre.matcher.ui.GameScreen
 import com.squasre.matcher.ui.theme.MatcherTheme
@@ -26,6 +27,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        // Setup global exception handler
+        setupGlobalExceptionHandler()
+
         enableEdgeToEdge()
         
         val gamePrefs = GamePreferences(this)
@@ -62,4 +67,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+
+    private fun setupGlobalExceptionHandler() {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            CrashLogger.logError("Uncaught exception on thread ${thread.name}", throwable)
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+    }
+
 }

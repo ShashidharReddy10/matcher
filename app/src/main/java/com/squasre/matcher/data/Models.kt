@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.Color
 import java.util.UUID
 
 enum class GameTheme {
-    NUMBERS, ALPHABET, SPECIAL_CHARACTERS, COMBINATION
+    NUMBERS, ALPHABET, SPECIAL_CHARACTERS, COMBINATION, EMOJIS, ICONS
 }
 
 enum class GridColorTheme(val displayName: String, val mainColor: Color, val containerColor: Color) {
@@ -29,6 +29,7 @@ data class GameState(
     val gridSize: Int = 4,
     val timeLeft: Int = 60,
     val score: Int = 0,
+    val moves: Int = 0,
     val combo: Int = 0,
     val isGameOver: Boolean = false,
     val isLevelComplete: Boolean = false,
@@ -45,7 +46,9 @@ data class GameState(
     val lastDailyRewardTime: Long = 0L,
     val isAdRewardAvailable: Boolean = true,
     val adRewardsRemaining: Int = 2,
-    val nextAdRewardTime: Long = 0L
+    val nextAdRewardTime: Long = 0L,
+    val bestScore: Int = 0,
+    val bestTime: Long = Long.MAX_VALUE // in seconds
 )
 
 enum class GameAdAction {

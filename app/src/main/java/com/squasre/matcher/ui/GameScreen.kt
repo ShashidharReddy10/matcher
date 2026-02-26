@@ -14,9 +14,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +35,7 @@ import com.squasre.matcher.logic.BillingManager
 import com.squasre.matcher.logic.GameViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.min
 
 @Composable
@@ -93,8 +92,9 @@ fun GameScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Level: ${state.currentLevel}", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Score: ${state.score}", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                        Text("Level: ${state.currentLevel}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Score: ${state.score}", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Text("Moves: ${state.moves}", fontSize = 12.sp, color = Color.Gray)
                     }
                     Text("${state.timeLeft}s", 
                         fontSize = 24.sp, 
@@ -186,7 +186,14 @@ fun GameScreen(
         AlertDialog(
             onDismissRequest = { },
             title = { Text("Level Complete!") },
-            text = { Text("You've cleared level ${state.currentLevel}. Earned $earnedCoins coins!") },
+            text = { 
+                Column {
+                    Text("You've cleared level ${state.currentLevel}.")
+                    Text("Score: ${state.score}")
+                    Text("Moves: ${state.moves}")
+                    Text("Earned $earnedCoins coins!")
+                }
+            },
             confirmButton = {
                 Button(onClick = {
                     viewModel.moveToNextLevel()
@@ -264,7 +271,7 @@ fun ThemeSelectionScreen(
         val minutes = (diff / (1000 * 60)) % 60
         val seconds = (diff / 1000) % 60
         
-        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+        return String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -280,6 +287,35 @@ fun ThemeSelectionScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("💰", fontSize = 20.sp)
                     Text("${state.coins}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Bests Info
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Best Score", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                        Text("${state.bestScore}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Divider(modifier = Modifier.height(40.dp).width(1.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Best Time", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                        val bestTimeStr = if (state.bestTime == Long.MAX_VALUE) "--:--" else {
+                            val mins = state.bestTime / 60
+                            val secs = state.bestTime % 60
+                            String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
+                        }
+                        Text(bestTimeStr, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
@@ -352,7 +388,7 @@ fun ThemeSelectionScreen(
                             .border(if (selectedColor == theme) 4.dp else 0.dp, Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (selectedColor == theme) Icon(androidx.compose.material.icons.Icons.Default.Settings, "", tint = Color.White, modifier = Modifier.size(16.dp))
+                        if (selectedColor == theme) Icon(Icons.Default.Check, "", tint = Color.White, modifier = Modifier.size(16.dp))
                     }
                 }
             }

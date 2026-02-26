@@ -36,6 +36,16 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                 _uiState.update { it.copy(coins = currentCoins) }
             }
         }
+        viewModelScope.launch {
+            gamePrefs.bestScore.collect { score ->
+                _uiState.update { it.copy(bestScore = score) }
+            }
+        }
+        viewModelScope.launch {
+            gamePrefs.bestTime.collect { time ->
+                _uiState.update { it.copy(bestTime = time) }
+            }
+        }
         checkDailyReward()
         checkAdRewardAvailability()
     }
@@ -146,6 +156,7 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                 gridSize = gridSize,
                 timeLeft = (60 + (level * 5)).coerceAtMost(480),
                 score = 0,
+                moves = 0,
                 combo = 0,
                 isGameOver = false,
                 isLevelComplete = false,
@@ -289,6 +300,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             GameTheme.NUMBERS -> (1..100).map { it.toString() }
             GameTheme.SPECIAL_CHARACTERS -> "!@#$%^&*()_+-=[]{}|;:,.<>?~`".map { it.toString() }
             GameTheme.COMBINATION -> "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*".map { it.toString() }
+            GameTheme.EMOJIS -> listOf("🍎","🍋","🍇","🍓","🍉","🍪","🍩","🍒","🥑","🍍","🍑","🍐","🥕","🌵","🌼","🍄","🦊","🐶","🐱","🐼")
+            GameTheme.ICONS -> listOf("⭐","⚽","🎵","🎲","🚗","✈️","⌚","📷","💡","🔔","🔑","📌","🏆","🧩","🎯","📚")
         }.shuffled()
 
         return (0 until count).map { index -> baseList[index % baseList.size] }
@@ -331,11 +344,19 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                         } else it
                     }
                     val isComplete = newBoard.all { it.isMatched }
-                    if (isComplete) timerJob?.cancel()
+                    if (isComplete) {
+                        timerJob?.cancel()
+                        val currentElapsed = (60 + (state.currentLevel * 5)).coerceAtMost(480) - state.timeLeft
+                        viewModelScope.launch {
+                            gamePrefs.updateBestScore(state.score + 100)
+                            gamePrefs.updateBestTime(currentElapsed.toLong())
+                        }
+                    }
                     
                     state.copy(
                         board = newBoard,
-                        score = state.score + 10 * (state.combo + 1),
+                        score = state.score + 100,
+                        moves = state.moves + 1,
                         combo = state.combo + 1,
                         isLevelComplete = isComplete
                     )
@@ -343,9 +364,13 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
             } else {
                 isProcessingMove = true
                 _uiState.update { state ->
-                    state.copy(board = state.board.map { 
-                        if (it.id == tile.id) it.copy(isSelected = true) else it 
-                    })
+                    state.copy(
+                        board = state.board.map { 
+                            if (it.id == tile.id) it.copy(isSelected = true) else it 
+                        },
+                        score = (state.score - 10).coerceAtLeast(0),
+                        moves = state.moves + 1
+                    )
                 }
                 
                 viewModelScope.launch {

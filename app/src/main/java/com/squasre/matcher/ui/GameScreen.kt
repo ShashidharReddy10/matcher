@@ -15,6 +15,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,6 +35,7 @@ import com.squasre.matcher.data.Tile
 import com.squasre.matcher.logic.AdManager
 import com.squasre.matcher.logic.BillingManager
 import com.squasre.matcher.logic.GameViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.min
 
@@ -58,10 +61,16 @@ fun GameScreen(
 
     if (state.isThemeSelectionOpen) {
         ThemeSelectionScreen(
+            state = state,
             onThemeSelected = { theme, isAlwaysVisible, colorTheme -> 
                 viewModel.selectTheme(theme, isAlwaysVisible, colorTheme) 
             },
-            coins = state.coins
+            onClaimDaily = { viewModel.claimDailyReward() },
+            onWatchAdForCoins = {
+                adManager.showRewarded(activity) {
+                    viewModel.earnCoinsFromAd(100)
+                }
+            }
         )
     } else {
         Column(
@@ -180,10 +189,7 @@ fun GameScreen(
             text = { Text("You've cleared level ${state.currentLevel}. Earned $earnedCoins coins!") },
             confirmButton = {
                 Button(onClick = {
-                    scope.launch { 
-                        gamePrefs.nextLevel(state.selectedTheme, state.isAlwaysVisible)
-                        viewModel.startNewLevel(state.currentLevel + 1)
-                    }
+                    viewModel.moveToNextLevel()
                 }) { Text("Next Level") }
             }
         )
@@ -228,10 +234,38 @@ fun PowerUpButton(label: String, subLabel: String, theme: GridColorTheme, onClic
 }
 
 @Composable
-fun ThemeSelectionScreen(onThemeSelected: (GameTheme, Boolean, GridColorTheme) -> Unit, coins: Int) {
+fun ThemeSelectionScreen(
+    state: com.squasre.matcher.data.GameState,
+    onThemeSelected: (GameTheme, Boolean, GridColorTheme) -> Unit,
+    onClaimDaily: () -> Unit,
+    onWatchAdForCoins: () -> Unit
+) {
     var isAlwaysVisible by remember { mutableStateOf(false) }
     var selectedColor by remember { mutableStateOf(GridColorTheme.BLUE) }
     var selectedTheme by remember { mutableStateOf(GameTheme.ALPHABET) }
+
+    // Timer logic for Ad rewards
+    var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    
+    LaunchedEffect(state.isAdRewardAvailable) {
+        if (!state.isAdRewardAvailable) {
+            while (true) {
+                delay(1000)
+                currentTime = System.currentTimeMillis()
+            }
+        }
+    }
+
+    fun formatRemainingTime(nextTime: Long): String {
+        val diff = nextTime - currentTime
+        if (diff <= 0) return "Ready!"
+        
+        val hours = (diff / (1000 * 60 * 60)) % 24
+        val minutes = (diff / (1000 * 60)) % 60
+        val seconds = (diff / 1000) % 60
+        
+        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -245,11 +279,62 @@ fun ThemeSelectionScreen(onThemeSelected: (GameTheme, Boolean, GridColorTheme) -
                 Text("Matcher", fontSize = 32.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("💰", fontSize = 20.sp)
-                    Text("$coins", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
+                    Text("${state.coins}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Daily Rewards Section
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Daily Reward Button
+                Card(
+                    modifier = Modifier.weight(1f).clickable(enabled = state.isDailyRewardAvailable) { onClaimDaily() },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (state.isDailyRewardAvailable) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.Star, contentDescription = null, tint = if (state.isDailyRewardAvailable) Color(0xFFFFD700) else Color.Gray)
+                        Text("Daily Reward", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(if (state.isDailyRewardAvailable) "Claim 50 💰" else "Claimed", fontSize = 10.sp)
+                    }
+                }
+
+                // Watch Ad Button
+                Card(
+                    modifier = Modifier.weight(1f).clickable(enabled = state.isAdRewardAvailable) { onWatchAdForCoins() },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (state.isAdRewardAvailable) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = if (state.isAdRewardAvailable) MaterialTheme.colorScheme.tertiary else Color.Gray)
+                        Text("Earn Coins", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (state.isAdRewardAvailable) {
+                                "${state.adRewardsRemaining}/2 Left (100💰)"
+                            } else {
+                                "Next in ${formatRemainingTime(state.nextAdRewardTime)}"
+                            },
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Color Theme Picker
             Text("Color Theme", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
@@ -293,7 +378,7 @@ fun ThemeSelectionScreen(onThemeSelected: (GameTheme, Boolean, GridColorTheme) -
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Theme Options
             Text("Select Data Theme", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))

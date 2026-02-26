@@ -20,8 +20,8 @@ data class Tile(
     val id: String = UUID.randomUUID().toString(),
     val content: String,
     val type: Int,
-    var isMatched: Boolean = false,
-    var isSelected: Boolean = false
+    val isMatched: Boolean = false,
+    val isSelected: Boolean = false
 )
 
 data class GameState(
@@ -40,7 +40,12 @@ data class GameState(
     val hintsLeft: Int = 3,
     val gridColorTheme: GridColorTheme = GridColorTheme.BLUE,
     val showNotEnoughCoinsDialog: Boolean = false,
-    val showMaxTimeToast: Boolean = false
+    val showMaxTimeToast: Boolean = false,
+    val isDailyRewardAvailable: Boolean = false,
+    val lastDailyRewardTime: Long = 0L,
+    val isAdRewardAvailable: Boolean = true,
+    val adRewardsRemaining: Int = 2,
+    val nextAdRewardTime: Long = 0L
 )
 
 enum class GameAdAction {

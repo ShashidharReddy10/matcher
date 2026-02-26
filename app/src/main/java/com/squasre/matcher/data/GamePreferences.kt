@@ -17,6 +17,8 @@ class GamePreferences(private val context: Context) {
         val COINS = intPreferencesKey("coins")
         val REMOVE_ADS = booleanPreferencesKey("remove_ads")
         val LAST_DAILY_REWARD = longPreferencesKey("last_daily_reward")
+        val AD_REWARD_COUNT = intPreferencesKey("ad_reward_count")
+        val AD_REWARD_WINDOW_START = longPreferencesKey("ad_reward_window_start")
         
         // Theme and Mode specific levels
         private fun levelKey(theme: String, isAlwaysVisible: Boolean) = 
@@ -26,6 +28,8 @@ class GamePreferences(private val context: Context) {
     val coins: Flow<Int> = context.dataStore.data.map { it[COINS] ?: 100 }
     val isAdsRemoved: Flow<Boolean> = context.dataStore.data.map { it[REMOVE_ADS] ?: false }
     val lastDailyReward: Flow<Long> = context.dataStore.data.map { it[LAST_DAILY_REWARD] ?: 0L }
+    val adRewardCount: Flow<Int> = context.dataStore.data.map { it[AD_REWARD_COUNT] ?: 0 }
+    val adRewardWindowStart: Flow<Long> = context.dataStore.data.map { it[AD_REWARD_WINDOW_START] ?: 0L }
 
     fun getLevelForTheme(theme: GameTheme, isAlwaysVisible: Boolean): Flow<Int> {
         return context.dataStore.data.map { it[levelKey(theme.name, isAlwaysVisible)] ?: 1 }
@@ -60,5 +64,12 @@ class GamePreferences(private val context: Context) {
 
     suspend fun updateDailyReward(time: Long) {
         context.dataStore.edit { it[LAST_DAILY_REWARD] = time }
+    }
+
+    suspend fun updateAdRewardState(count: Int, windowStart: Long) {
+        context.dataStore.edit {
+            it[AD_REWARD_COUNT] = count
+            it[AD_REWARD_WINDOW_START] = windowStart
+        }
     }
 }

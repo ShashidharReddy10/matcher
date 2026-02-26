@@ -299,11 +299,20 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     }
 
     fun autoMatchPercentage(percentage: Float) {
+        // Stop timer immediately
+        timerJob?.cancel()
+        
         _uiState.update { state ->
-            if (state.autoMatchesUsed >= 3) return@update state
+            if (state.autoMatchesUsed >= 3) {
+                viewModelScope.launch { startTimer() }
+                return@update state
+            }
 
             val unmatchedTiles = state.board.filter { !it.isMatched }
-            if (unmatchedTiles.size <= 6) return@update state
+            if (unmatchedTiles.size <= 6) {
+                viewModelScope.launch { startTimer() }
+                return@update state
+            }
 
             val totalTiles = state.board.size
             var numToMatch = (ceil(totalTiles * percentage) / 2).toInt() * 2
@@ -314,7 +323,10 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                 numToMatch = (numToMatch / 2) * 2 // Keep it pairs
             }
 
-            if (numToMatch <= 0) return@update state
+            if (numToMatch <= 0) {
+                viewModelScope.launch { startTimer() }
+                return@update state
+            }
             
             val unmatchedGroups = unmatchedTiles.groupBy { it.content }.values.filter { it.size >= 2 }
             val pairsToMatch = unmatchedGroups.shuffled().take(numToMatch / 2)
@@ -324,12 +336,20 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                 if (idsToMatch.contains(it.id)) it.copy(isMatched = true, isSelected = false) else it
             }
 
+            // Calculate time penalty: -1s for every 2 tiles (1 pair) matched
+            val timePenalty = pairsToMatch.size / 2
+            val potentialTime = state.timeLeft - timePenalty
+            val newTime = max(15, potentialTime)
+
             val isComplete = newBoard.all { it.isMatched }
-            if (isComplete) timerJob?.cancel()
+            if (!isComplete) {
+                viewModelScope.launch { startTimer() }
+            }
 
             state.copy(
                 board = newBoard,
                 score = state.score + (pairsToMatch.size * 100),
+                timeLeft = newTime,
                 isLevelComplete = isComplete,
                 autoMatchesUsed = state.autoMatchesUsed + 1
             )

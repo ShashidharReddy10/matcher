@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import kotlin.math.ceil
+import kotlin.math.max
 
 class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
     private val _uiState = MutableStateFlow(GameState())
@@ -111,7 +113,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                     gridColorTheme = colorTheme,
                     isLevelComplete = false,
                     isGameOver = false,
-                    board = emptyList() 
+                    board = emptyList(),
+                    autoMatchesUsed = 0
                 ) 
             }
             startNewLevel(savedLevel)
@@ -161,7 +164,8 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                 isGameOver = false,
                 isLevelComplete = false,
                 currentLevel = level,
-                hintsLeft = 3
+                hintsLeft = 3,
+                autoMatchesUsed = 0
             )
         }
         
@@ -291,6 +295,44 @@ class GameViewModel(private val gamePrefs: GamePreferences) : ViewModel() {
                 startTimer()
             }
             checkAdRewardAvailability()
+        }
+    }
+
+    fun autoMatchPercentage(percentage: Float) {
+        _uiState.update { state ->
+            if (state.autoMatchesUsed >= 3) return@update state
+
+            val unmatchedTiles = state.board.filter { !it.isMatched }
+            if (unmatchedTiles.size <= 6) return@update state
+
+            val totalTiles = state.board.size
+            var numToMatch = (ceil(totalTiles * percentage) / 2).toInt() * 2
+            
+            // Ensure we don't leave fewer than 6 unmatched
+            if (unmatchedTiles.size - numToMatch < 6) {
+                numToMatch = unmatchedTiles.size - 6
+                numToMatch = (numToMatch / 2) * 2 // Keep it pairs
+            }
+
+            if (numToMatch <= 0) return@update state
+            
+            val unmatchedGroups = unmatchedTiles.groupBy { it.content }.values.filter { it.size >= 2 }
+            val pairsToMatch = unmatchedGroups.shuffled().take(numToMatch / 2)
+            val idsToMatch = pairsToMatch.flatten().map { it.id }.toSet()
+
+            val newBoard = state.board.map {
+                if (idsToMatch.contains(it.id)) it.copy(isMatched = true, isSelected = false) else it
+            }
+
+            val isComplete = newBoard.all { it.isMatched }
+            if (isComplete) timerJob?.cancel()
+
+            state.copy(
+                board = newBoard,
+                score = state.score + (pairsToMatch.size * 100),
+                isLevelComplete = isComplete,
+                autoMatchesUsed = state.autoMatchesUsed + 1
+            )
         }
     }
 

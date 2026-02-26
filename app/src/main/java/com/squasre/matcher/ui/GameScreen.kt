@@ -83,7 +83,23 @@ fun GameScreen(
                 }
             )
         } else {
-            GamePlayContent(state, viewModel, viewModel::openThemeSelection)
+            GamePlayContent(
+                state = state, 
+                viewModel = viewModel, 
+                onOpenSettings = viewModel::openThemeSelection,
+                onAutoMatchAd = {
+                    val unmatchedCount = state.board.count { !it.isMatched }
+                    if (unmatchedCount <= 6) {
+                        Toast.makeText(context, "Only a few matches left! You can do this yourself!", Toast.LENGTH_SHORT).show()
+                    } else if (state.autoMatchesUsed >= 3) {
+                        Toast.makeText(context, "Auto Match limit reached for this level!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        adManager.showRewarded(activity) {
+                            viewModel.autoMatchPercentage(0.2f)
+                        }
+                    }
+                }
+            )
         }
     }
 
@@ -173,17 +189,25 @@ fun GameScreen(
 }
 
 @Composable
-fun GamePlayContent(state: com.squasre.matcher.data.GameState, viewModel: GameViewModel, onOpenSettings: () -> Unit) {
+fun GamePlayContent(
+    state: com.squasre.matcher.data.GameState, 
+    viewModel: GameViewModel, 
+    onOpenSettings: () -> Unit,
+    onAutoMatchAd: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(state.gridColorTheme.containerColor.copy(alpha = 0.3f))
-            .padding(16.dp),
+            .statusBarsPadding()
+            .navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Top Bar
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 4.dp
@@ -216,15 +240,21 @@ fun GamePlayContent(state: com.squasre.matcher.data.GameState, viewModel: GameVi
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Grid
-        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+        // Grid container with weight to take available space
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center
+        ) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(state.gridSize),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
                 contentPadding = PaddingValues(4.dp)
             ) {
                 items(state.board, key = { it.id }) { tile ->
@@ -239,36 +269,71 @@ fun GamePlayContent(state: com.squasre.matcher.data.GameState, viewModel: GameVi
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Controls
-        Row(
+        // Bottom Controls - Fixed at the bottom
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            color = Color.Transparent
         ) {
-            if (!state.isAlwaysVisible) {
-                PowerUpButton("Hint", if (state.hintsLeft > 0) "${state.hintsLeft} Free" else "20 💰", state.gridColorTheme) {
-                    if (state.hintsLeft > 0) viewModel.useHint() else viewModel.buyHintWithCoins()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!state.isAlwaysVisible) {
+                    PowerUpButton(
+                        label = "Hint", 
+                        subLabel = if (state.hintsLeft > 0) "${state.hintsLeft} Free" else "20 💰", 
+                        theme = state.gridColorTheme, 
+                        onClick = { if (state.hintsLeft > 0) viewModel.useHint() else viewModel.buyHintWithCoins() }
+                    )
                 }
+                if (state.currentLevel >= 3) {
+                    PowerUpButton(
+                        label = "Auto Match", 
+                        subLabel = "${state.autoMatchesUsed}/3 AD 📺", 
+                        theme = state.gridColorTheme, 
+                        onClick = onAutoMatchAd,
+                        enabled = state.autoMatchesUsed < 3
+                    )
+                }
+                PowerUpButton(
+                    label = "Shuffle", 
+                    subLabel = "30 💰", 
+                    theme = state.gridColorTheme, 
+                    onClick = { viewModel.buyShuffleWithCoins() }
+                )
+                PowerUpButton(
+                    label = "Time", 
+                    subLabel = "50 💰", 
+                    theme = state.gridColorTheme, 
+                    onClick = { viewModel.buyExtraTimeWithCoins() }
+                )
             }
-            PowerUpButton("Shuffle", "30 💰", state.gridColorTheme) { viewModel.buyShuffleWithCoins() }
-            PowerUpButton("Time", "50 💰", state.gridColorTheme) { viewModel.buyExtraTimeWithCoins() }
         }
     }
 }
 
 @Composable
-fun PowerUpButton(label: String, subLabel: String, theme: GridColorTheme, onClick: () -> Unit) {
+fun PowerUpButton(label: String, subLabel: String, theme: GridColorTheme, onClick: () -> Unit, enabled: Boolean = true) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = theme.mainColor),
-        modifier = Modifier.height(60.dp).widthIn(min = 90.dp),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+        colors = ButtonDefaults.buttonColors(
+            containerColor = theme.mainColor,
+            disabledContainerColor = theme.mainColor.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier
+            .height(60.dp)
+            .widthIn(min = 80.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(subLabel, fontSize = 11.sp, color = Color.White.copy(alpha = 0.9f))
+            Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(subLabel, fontSize = 9.sp, color = Color.White.copy(alpha = 0.9f), maxLines = 1)
         }
     }
 }
@@ -393,7 +458,7 @@ fun ThemeSelectionScreen(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                GridColorTheme.values().forEach { theme ->
+                GridColorTheme.entries.forEach { theme ->
                     Box(
                         modifier = Modifier
                             .size(48.dp)
@@ -436,7 +501,7 @@ fun ThemeSelectionScreen(
             Text("Select Data Theme", fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.Start), fontSize = 18.sp)
             Spacer(modifier = Modifier.height(16.dp))
             
-            GameTheme.values().forEach { theme ->
+            GameTheme.entries.forEach { theme ->
                 val isSelected = selectedTheme == theme
                 Button(
                     onClick = { selectedTheme = theme },

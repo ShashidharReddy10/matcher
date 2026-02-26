@@ -48,7 +48,8 @@ data class GameState(
     val adRewardsRemaining: Int = 2,
     val nextAdRewardTime: Long = 0L,
     val bestScore: Int = 0,
-    val bestTime: Long = Long.MAX_VALUE // in seconds
+    val bestTime: Long = Long.MAX_VALUE, // in seconds
+    val autoMatchesUsed: Int = 0
 )
 
 enum class GameAdAction {

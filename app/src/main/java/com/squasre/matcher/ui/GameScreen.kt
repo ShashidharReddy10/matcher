@@ -2,6 +2,7 @@ package com.squasre.matcher.ui
 
 import android.app.Activity
 import android.widget.Toast
+import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -24,6 +27,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.squasre.matcher.data.GamePreferences
@@ -58,99 +62,28 @@ fun GameScreen(
         }
     }
 
-    if (state.isThemeSelectionOpen) {
-        ThemeSelectionScreen(
-            state = state,
-            onThemeSelected = { theme, isAlwaysVisible, colorTheme -> 
-                viewModel.selectTheme(theme, isAlwaysVisible, colorTheme) 
-            },
-            onClaimDaily = { viewModel.claimDailyReward() },
-            onWatchAdForCoins = {
-                adManager.showRewarded(activity) {
-                    viewModel.earnCoinsFromAd(100)
-                }
-            }
-        )
-    } else {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(state.gridColorTheme.containerColor.copy(alpha = 0.3f))
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Top Bar
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 4.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Level: ${state.currentLevel}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text("Score: ${state.score}", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        Text("Moves: ${state.moves}", fontSize = 12.sp, color = Color.Gray)
-                    }
-                    Text("${state.timeLeft}s", 
-                        fontSize = 24.sp, 
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (state.timeLeft < 10) Color.Red else state.gridColorTheme.mainColor
-                    )
-                    Column(horizontalAlignment = Alignment.End) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("💰", fontSize = 16.sp)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("${state.coins}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
-                        }
-                        IconButton(onClick = { viewModel.openThemeSelection() }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(16.dp))
-                        }
+    AnimatedContent(
+        targetState = state.isThemeSelectionOpen,
+        transitionSpec = {
+            fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
+        },
+        label = "screen_transition"
+    ) { isSelectionOpen ->
+        if (isSelectionOpen) {
+            ThemeSelectionScreen(
+                state = state,
+                onThemeSelected = { theme, isAlwaysVisible, colorTheme -> 
+                    viewModel.selectTheme(theme, isAlwaysVisible, colorTheme) 
+                },
+                onClaimDaily = { viewModel.claimDailyReward() },
+                onWatchAdForCoins = {
+                    adManager.showRewarded(activity) {
+                        viewModel.earnCoinsFromAd(100)
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Grid
-            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(state.gridSize),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.aspectRatio(1f)
-                ) {
-                    items(state.board) { tile ->
-                        TileView(
-                            tile = tile, 
-                            isAlwaysVisible = state.isAlwaysVisible,
-                            colorTheme = state.gridColorTheme,
-                            gridSize = state.gridSize,
-                            onClick = { viewModel.onTileClicked(tile) }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Controls
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                if (!state.isAlwaysVisible) {
-                    PowerUpButton("Hint", if (state.hintsLeft > 0) "${state.hintsLeft} Free" else "20 💰", state.gridColorTheme) {
-                        if (state.hintsLeft > 0) viewModel.useHint() else viewModel.buyHintWithCoins()
-                    }
-                }
-                PowerUpButton("Shuffle", "30 💰", state.gridColorTheme) { viewModel.buyShuffleWithCoins() }
-                PowerUpButton("Time", "50 💰", state.gridColorTheme) { viewModel.buyExtraTimeWithCoins() }
-            }
+            )
+        } else {
+            GamePlayContent(state, viewModel, viewModel::openThemeSelection)
         }
     }
 
@@ -185,19 +118,33 @@ fun GameScreen(
         }
         AlertDialog(
             onDismissRequest = { },
-            title = { Text("Level Complete!") },
+            title = { Text("Level Complete!", fontWeight = FontWeight.ExtraBold) },
             text = { 
-                Column {
-                    Text("You've cleared level ${state.currentLevel}.")
-                    Text("Score: ${state.score}")
-                    Text("Moves: ${state.moves}")
-                    Text("Earned $earnedCoins coins!")
+                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Level ${state.currentLevel} Cleared!", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Score:")
+                        Text("${state.score}", fontWeight = FontWeight.Bold)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Moves:")
+                        Text("${state.moves}", fontWeight = FontWeight.Bold)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Bonus Coins:")
+                        Text("$earnedCoins 💰", color = Color(0xFFFFD700), fontWeight = FontWeight.ExtraBold)
+                    }
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    viewModel.moveToNextLevel()
-                }) { Text("Next Level") }
+                Button(
+                    onClick = { viewModel.moveToNextLevel() },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) { 
+                    Text("Next Level") 
+                }
             }
         )
     }
@@ -226,12 +173,98 @@ fun GameScreen(
 }
 
 @Composable
+fun GamePlayContent(state: com.squasre.matcher.data.GameState, viewModel: GameViewModel, onOpenSettings: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(state.gridColorTheme.containerColor.copy(alpha = 0.3f))
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Top Bar
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Level: ${state.currentLevel}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("Score: ${state.score}", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("Moves: ${state.moves}", fontSize = 12.sp, color = Color.Gray)
+                }
+                Text("${state.timeLeft}s", 
+                    fontSize = 28.sp, 
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (state.timeLeft < 10) Color.Red else state.gridColorTheme.mainColor
+                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("💰", fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("${state.coins}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
+                    }
+                    IconButton(onClick = onOpenSettings, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Grid
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(state.gridSize),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                contentPadding = PaddingValues(4.dp)
+            ) {
+                items(state.board, key = { it.id }) { tile ->
+                    TileView(
+                        tile = tile, 
+                        isAlwaysVisible = state.isAlwaysVisible,
+                        colorTheme = state.gridColorTheme,
+                        gridSize = state.gridSize,
+                        onClick = { viewModel.onTileClicked(tile) }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Controls
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            if (!state.isAlwaysVisible) {
+                PowerUpButton("Hint", if (state.hintsLeft > 0) "${state.hintsLeft} Free" else "20 💰", state.gridColorTheme) {
+                    if (state.hintsLeft > 0) viewModel.useHint() else viewModel.buyHintWithCoins()
+                }
+            }
+            PowerUpButton("Shuffle", "30 💰", state.gridColorTheme) { viewModel.buyShuffleWithCoins() }
+            PowerUpButton("Time", "50 💰", state.gridColorTheme) { viewModel.buyExtraTimeWithCoins() }
+        }
+    }
+}
+
+@Composable
 fun PowerUpButton(label: String, subLabel: String, theme: GridColorTheme, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(containerColor = theme.mainColor),
-        modifier = Modifier.height(56.dp)
+        modifier = Modifier.height(60.dp).widthIn(min = 90.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -250,6 +283,7 @@ fun ThemeSelectionScreen(
     var isAlwaysVisible by remember { mutableStateOf(false) }
     var selectedColor by remember { mutableStateOf(GridColorTheme.BLUE) }
     var selectedTheme by remember { mutableStateOf(GameTheme.ALPHABET) }
+    val scrollState = rememberScrollState()
 
     // Timer logic for Ad rewards
     var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -278,35 +312,39 @@ fun ThemeSelectionScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(horizontal = 24.dp)
+                .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(modifier = Modifier.height(32.dp))
+            
             // Header
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Matcher", fontSize = 32.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Matcher", fontSize = 36.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("💰", fontSize = 20.sp)
-                    Text("${state.coins}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
+                    Text("${state.coins}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Bests Info
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                tonalElevation = 2.dp
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Best Score", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                        Text("${state.bestScore}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("${state.bestScore}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     }
-                    Divider(modifier = Modifier.height(40.dp).width(1.dp))
+                    VerticalDivider(modifier = Modifier.height(44.dp), thickness = 1.dp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Best Time", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                         val bestTimeStr = if (state.bestTime == Long.MAX_VALUE) "--:--" else {
@@ -314,92 +352,70 @@ fun ThemeSelectionScreen(
                             val secs = state.bestTime % 60
                             String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
                         }
-                        Text(bestTimeStr, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Daily Rewards Section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Daily Reward Button
-                Card(
-                    modifier = Modifier.weight(1f).clickable(enabled = state.isDailyRewardAvailable) { onClaimDaily() },
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (state.isDailyRewardAvailable) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(Icons.Default.Star, contentDescription = null, tint = if (state.isDailyRewardAvailable) Color(0xFFFFD700) else Color.Gray)
-                        Text("Daily Reward", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Text(if (state.isDailyRewardAvailable) "Claim 50 💰" else "Claimed", fontSize = 10.sp)
-                    }
-                }
-
-                // Watch Ad Button
-                Card(
-                    modifier = Modifier.weight(1f).clickable(enabled = state.isAdRewardAvailable) { onWatchAdForCoins() },
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (state.isAdRewardAvailable) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = if (state.isAdRewardAvailable) MaterialTheme.colorScheme.tertiary else Color.Gray)
-                        Text("Earn Coins", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = if (state.isAdRewardAvailable) {
-                                "${state.adRewardsRemaining}/2 Left (100💰)"
-                            } else {
-                                "Next in ${formatRemainingTime(state.nextAdRewardTime)}"
-                            },
-                            fontSize = 10.sp
-                        )
+                        Text(bestTimeStr, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Color Theme Picker
-            Text("Color Theme", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+            // Daily Rewards Section
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                RewardCard(
+                    title = "Daily Reward",
+                    subtitle = if (state.isDailyRewardAvailable) "Claim 50 💰" else "Claimed",
+                    icon = Icons.Default.Star,
+                    color = if (state.isDailyRewardAvailable) Color(0xFFFFD700) else Color.Gray,
+                    enabled = state.isDailyRewardAvailable,
+                    onClick = onClaimDaily,
+                    modifier = Modifier.weight(1f)
+                )
+
+                RewardCard(
+                    title = "Earn Coins",
+                    subtitle = if (state.isAdRewardAvailable) "${state.adRewardsRemaining}/2 Left" else formatRemainingTime(state.nextAdRewardTime),
+                    icon = Icons.Default.PlayArrow,
+                    color = if (state.isAdRewardAvailable) MaterialTheme.colorScheme.tertiary else Color.Gray,
+                    enabled = state.isAdRewardAvailable,
+                    onClick = onWatchAdForCoins,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Color Theme Picker
+            Text("Color Theme", fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.Start), fontSize = 18.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 GridColorTheme.values().forEach { theme ->
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .background(theme.mainColor)
                             .clickable { selectedColor = theme }
                             .border(if (selectedColor == theme) 4.dp else 0.dp, Color.White, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (selectedColor == theme) Icon(Icons.Default.Check, "", tint = Color.White, modifier = Modifier.size(16.dp))
+                        if (selectedColor == theme) Icon(Icons.Default.Check, "", tint = Color.White, modifier = Modifier.size(20.dp))
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Game Mode
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                tonalElevation = 1.dp
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
@@ -407,44 +423,70 @@ fun ThemeSelectionScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column {
-                        Text("Always Show", fontWeight = FontWeight.Bold)
-                        Text("View all characters directly", fontSize = 12.sp)
+                        Text("Hard Mode", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Hide characters after peek", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = isAlwaysVisible, onCheckedChange = { isAlwaysVisible = it })
+                    Switch(checked = !isAlwaysVisible, onCheckedChange = { isAlwaysVisible = !it })
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
             // Theme Options
-            Text("Select Data Theme", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
-            Spacer(modifier = Modifier.height(12.dp))
+            Text("Select Data Theme", fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.Start), fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(16.dp))
             
             GameTheme.values().forEach { theme ->
                 val isSelected = selectedTheme == theme
                 Button(
                     onClick = { selectedTheme = theme },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isSelected) selectedColor.mainColor else selectedColor.containerColor,
                         contentColor = if (isSelected) Color.White else selectedColor.mainColor
-                    )
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = if (isSelected) 4.dp else 0.dp)
                 ) {
-                    Text(theme.name.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                    Text(theme.name.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(32.dp))
 
             Button(
                 onClick = { onThemeSelected(selectedTheme, isAlwaysVisible, selectedColor) },
                 modifier = Modifier.fillMaxWidth().height(64.dp),
                 shape = RoundedCornerShape(20.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = selectedColor.mainColor)
+                colors = ButtonDefaults.buttonColors(containerColor = selectedColor.mainColor),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
             ) {
-                Text("START GAME", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Text("START MATCHING", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
             }
+            
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+fun RewardCard(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.clickable(enabled = enabled) { onClick() },
+        colors = CardDefaults.cardColors(
+            containerColor = if (enabled) MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (enabled) 4.dp else 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(28.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
     }
 }
@@ -453,22 +495,20 @@ fun ThemeSelectionScreen(
 fun TileView(tile: Tile, isAlwaysVisible: Boolean, colorTheme: GridColorTheme, gridSize: Int, onClick: () -> Unit) {
     val isRevealed = tile.isSelected || isAlwaysVisible
     
-    // Animation for highlighting the selected tile
     val scale by animateFloatAsState(
-        targetValue = if (tile.isSelected) 1.1f else 1.0f,
-        animationSpec = tween(durationMillis = 200),
+        targetValue = if (tile.isSelected) 1.05f else 1.0f,
+        animationSpec = tween(durationMillis = 150),
         label = "tile_scale"
     )
 
-    // Dynamically adjust font size based on grid size and content length
     val baseFontSize = when {
-        gridSize <= 4 -> 24.sp
-        gridSize <= 6 -> 18.sp
-        else -> 14.sp
+        gridSize <= 4 -> 28.sp
+        gridSize <= 6 -> 20.sp
+        else -> 16.sp
     }
 
     val finalFontSize = if (isRevealed && tile.content.length >= 3) {
-        (baseFontSize.value * 0.8f).sp
+        (baseFontSize.value * 0.75f).sp
     } else {
         baseFontSize
     }
@@ -479,7 +519,7 @@ fun TileView(tile: Tile, isAlwaysVisible: Boolean, colorTheme: GridColorTheme, g
             .scale(scale)
             .clickable(enabled = !tile.isMatched) { onClick() }
             .then(
-                if (tile.isSelected) Modifier.border(3.dp, Color.White, RoundedCornerShape(16.dp))
+                if (tile.isSelected) Modifier.border(3.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
                 else Modifier
             ),
         shape = RoundedCornerShape(16.dp),
@@ -488,15 +528,15 @@ fun TileView(tile: Tile, isAlwaysVisible: Boolean, colorTheme: GridColorTheme, g
             isRevealed -> colorTheme.mainColor
             else -> colorTheme.containerColor
         },
-        tonalElevation = if (tile.isSelected) 12.dp else if (isRevealed) 8.dp else 2.dp,
-        shadowElevation = if (tile.isSelected) 8.dp else if (isRevealed) 4.dp else 1.dp
+        tonalElevation = if (tile.isSelected) 8.dp else if (isRevealed) 4.dp else 1.dp,
+        shadowElevation = if (tile.isSelected) 4.dp else 1.dp
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (!tile.isMatched) {
                 Text(
                     text = if (isRevealed) tile.content else "?",
                     fontSize = finalFontSize,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Black,
                     color = if (isRevealed) Color.White else colorTheme.mainColor,
                     maxLines = 1,
                     softWrap = false
